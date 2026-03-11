@@ -62,6 +62,9 @@ importers:
       json5:
         specifier: ^2.2.3
         version: 2.2.3
+      opentypebb:
+        specifier: link:./packages/opentypebb
+        version: link:packages/opentypebb
       pino:
         specifier: ^10.3.1
         version: 10.3.1
