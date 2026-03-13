@@ -6,11 +6,12 @@
   "scripts": {
     "dev": "tsx src/main.ts",
     "dev:ui": "pnpm --filter open-alice-ui dev",
-    "build": "pnpm build:ui && pnpm build:backend",
+    "build": "pnpm --filter opentypebb build && pnpm build:ui && pnpm build:backend",
     "build:ui": "pnpm --filter open-alice-ui build",
     "build:backend": "tsup src/main.ts --format esm --dts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "start": "node dist/main.js"
   },
   "keywords": [
     "trading",
