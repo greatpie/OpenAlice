@@ -226,23 +226,44 @@ export class EClient {
     }
   }
 
+  /**
+   * Process a single framed message from the reader.
+   * Mirrors: ibapi/client.py run() lines 595-611
+   *
+   * Server v201+: 4-byte big-endian binary msgId prefix.
+   * If msgId > PROTOBUF_MSG_ID (200) → protobuf (subtract 200 for real msgId).
+   * Otherwise → text with \0-delimited fields.
+   *
+   * Server < 201: text msgId is first \0-delimited field.
+   */
   private onMessage(msgBuf: Buffer): void {
     if (!this.decoder) return
 
-    // Check if this is a protobuf message (4-byte msgId as big-endian int)
-    if (msgBuf.length >= 4) {
-      const msgId = msgBuf.readUInt32BE(0)
-      // Protobuf messages have high msg IDs (original msgId + 2^31)
-      if (msgId > 2147483647) {
-        // TODO: protobuf decode path
-        return
-      }
+    const PROTOBUF_MSG_ID = 200
+    let msgId: number
+    let payload: Buffer
+
+    if (this.serverVersion() >= MIN_SERVER_VER_PROTOBUF) {
+      // v201+: first 4 bytes are binary msgId
+      msgId = msgBuf.readUInt32BE(0)
+      payload = msgBuf.subarray(4)
+    } else {
+      // Legacy: first \0-delimited field is the text msgId
+      const nullIdx = msgBuf.indexOf(0)
+      if (nullIdx < 0) return
+      msgId = parseInt(msgBuf.subarray(0, nullIdx).toString('utf-8'), 10)
+      payload = msgBuf.subarray(nullIdx + 1)
     }
 
-    // Text protocol: split into fields, dispatch
-    const fields = readFields(msgBuf)
-    if (fields.length === 0) return
-    this.decoder.interpret(fields)
+    if (msgId > PROTOBUF_MSG_ID) {
+      // Protobuf message
+      msgId -= PROTOBUF_MSG_ID
+      this.decoder.processProtoBuf(payload, msgId)
+    } else {
+      // Text message — split into fields and dispatch
+      const fields = readFields(payload)
+      this.decoder.interpret(fields, msgId)
+    }
   }
 
   private waitForHandshake(): Promise<{ serverVersion: number; connTime: string }> {

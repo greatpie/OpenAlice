@@ -1,7 +1,8 @@
 /**
- * EClient historical data, scanners, real-time bars, fundamental data,
- * news, display groups, verification, and misc request methods.
- * Mirrors: ibapi/client.py lines 4842-7502
+ * EClient mixin — historical data, scanner, news, and misc methods.
+ * Mirrors: ibapi/client.py (lines ~4842-7500)
+ *
+ * Applied via applyHistorical() which extends EClient.prototype.
  */
 
 import { EClient } from './base.js'
@@ -25,7 +26,6 @@ declare module './base.js' {
     reqHistogramData(tickerId: number, contract: Contract, useRTH: boolean, timePeriod: string): void
     cancelHistogramData(tickerId: number): void
     reqHistoricalTicks(reqId: number, contract: Contract, startDateTime: string, endDateTime: string, numberOfTicks: number, whatToShow: string, useRth: number, ignoreSize: boolean, miscOptions: TagValueList): void
-    cancelHistoricalTicks(reqId: number): void
     reqScannerParameters(): void
     reqScannerSubscription(reqId: number, subscription: ScannerSubscription, scannerSubscriptionOptions: TagValueList, scannerSubscriptionFilterOptions: TagValueList): void
     cancelScannerSubscription(reqId: number): void
@@ -53,7 +53,19 @@ declare module './base.js' {
     reqWshEventData(reqId: number, wshEventData: WshEventData): void
     cancelWshEventData(reqId: number): void
     reqUserInfo(reqId: number): void
+    cancelContractData(reqId: number): void
+    cancelHistoricalTicks(reqId: number): void
   }
+}
+
+/** Helper: serialize a TagValueList into a wire string. */
+function tagValueListToStr(list: TagValueList): string {
+  if (!list) return ''
+  let s = ''
+  for (const tv of list) {
+    s += String(tv)
+  }
+  return s
 }
 
 export function applyHistorical(Client: typeof EClient): void {
@@ -140,11 +152,7 @@ export function applyHistorical(Client: typeof EClient): void {
 
       // chartOptions
       if (this.serverVersion() >= SV.MIN_SERVER_VER_LINKING) {
-        let chartOptionsStr = ''
-        if (chartOptions) {
-          for (const tv of chartOptions) chartOptionsStr += String(tv)
-        }
-        flds.push(makeField(chartOptionsStr))
+        flds.push(makeField(tagValueListToStr(chartOptions)))
       }
 
       this.sendMsg(OUT.REQ_HISTORICAL_DATA, flds.join(''))
@@ -311,26 +319,12 @@ export function applyHistorical(Client: typeof EClient): void {
         makeField(whatToShow),
         makeField(useRth),
         makeField(ignoreSize),
+        makeField(tagValueListToStr(miscOptions)),
       ]
-
-      let miscOptionsStr = ''
-      if (miscOptions) {
-        for (const tv of miscOptions) miscOptionsStr += String(tv)
-      }
-      flds.push(makeField(miscOptionsStr))
 
       this.sendMsg(OUT.REQ_HISTORICAL_TICKS, flds.join(''))
     } catch (ex: any) {
       this.wrapper.error(reqId, currentTimeMillis(), errors.FAIL_SEND_REQHISTORICALTICKS.code(), errors.FAIL_SEND_REQHISTORICALTICKS.msg() + String(ex))
-    }
-  }
-
-  Client.prototype.cancelHistoricalTicks = function (this: EClient, reqId: number): void {
-    if (!this.requireConnected(reqId)) return
-    try {
-      this.sendMsg(OUT.CANCEL_HISTORICAL_TICKS, makeField(reqId))
-    } catch (ex: any) {
-      this.wrapper.error(reqId, currentTimeMillis(), errors.FAIL_SEND_CANCEL_HISTORICAL_TICKS.code(), errors.FAIL_SEND_CANCEL_HISTORICAL_TICKS.msg() + String(ex))
     }
   }
 
@@ -393,20 +387,12 @@ export function applyHistorical(Client: typeof EClient): void {
 
       // scannerSubscriptionFilterOptions
       if (this.serverVersion() >= SV.MIN_SERVER_VER_SCANNER_GENERIC_OPTS) {
-        let filterStr = ''
-        if (scannerSubscriptionFilterOptions) {
-          for (const tv of scannerSubscriptionFilterOptions) filterStr += String(tv)
-        }
-        flds.push(makeField(filterStr))
+        flds.push(makeField(tagValueListToStr(scannerSubscriptionFilterOptions)))
       }
 
       // scannerSubscriptionOptions
       if (this.serverVersion() >= SV.MIN_SERVER_VER_LINKING) {
-        let optStr = ''
-        if (scannerSubscriptionOptions) {
-          for (const tv of scannerSubscriptionOptions) optStr += String(tv)
-        }
-        flds.push(makeField(optStr))
+        flds.push(makeField(tagValueListToStr(scannerSubscriptionOptions)))
       }
 
       this.sendMsg(OUT.REQ_SCANNER_SUBSCRIPTION, flds.join(''))
@@ -467,11 +453,7 @@ export function applyHistorical(Client: typeof EClient): void {
 
       // realTimeBarsOptions
       if (this.serverVersion() >= SV.MIN_SERVER_VER_LINKING) {
-        let rtbOptStr = ''
-        if (realTimeBarsOptions) {
-          for (const tv of realTimeBarsOptions) rtbOptStr += String(tv)
-        }
-        flds.push(makeField(rtbOptStr))
+        flds.push(makeField(tagValueListToStr(realTimeBarsOptions)))
       }
 
       this.sendMsg(OUT.REQ_REAL_TIME_BARS, flds.join(''))
@@ -497,21 +479,20 @@ export function applyHistorical(Client: typeof EClient): void {
   ): void {
     if (!this.requireConnected()) return
 
+    if (this.serverVersion() < SV.MIN_SERVER_VER_FUNDAMENTAL_DATA) {
+      this.wrapper.error(NO_VALID_ID, currentTimeMillis(), errors.UPDATE_TWS.code(),
+        errors.UPDATE_TWS.msg() + '  It does not support fundamental data request.')
+      return
+    }
+
+    if (this.serverVersion() < SV.MIN_SERVER_VER_TRADING_CLASS) {
+      this.wrapper.error(NO_VALID_ID, currentTimeMillis(), errors.UPDATE_TWS.code(),
+        errors.UPDATE_TWS.msg() + '  It does not support conId parameter in reqFundamentalData.')
+      return
+    }
+
     try {
       const VERSION = 2
-
-      if (this.serverVersion() < SV.MIN_SERVER_VER_FUNDAMENTAL_DATA) {
-        this.wrapper.error(NO_VALID_ID, currentTimeMillis(), errors.UPDATE_TWS.code(),
-          errors.UPDATE_TWS.msg() + '  It does not support fundamental data request.')
-        return
-      }
-
-      if (this.serverVersion() < SV.MIN_SERVER_VER_TRADING_CLASS) {
-        this.wrapper.error(NO_VALID_ID, currentTimeMillis(), errors.UPDATE_TWS.code(),
-          errors.UPDATE_TWS.msg() + '  It does not support conId parameter in reqFundamentalData.')
-        return
-      }
-
       const flds: string[] = [makeField(VERSION), makeField(reqId)]
 
       // contract fields (no strike, no lastTradeDate, no right, no multiplier — fundamental data specific)
@@ -529,12 +510,8 @@ export function applyHistorical(Client: typeof EClient): void {
       )
 
       if (this.serverVersion() >= SV.MIN_SERVER_VER_LINKING) {
-        let fundDataOptStr = ''
         const tagValuesCount = fundamentalDataOptions?.length ?? 0
-        if (fundamentalDataOptions) {
-          for (const tv of fundamentalDataOptions) fundDataOptStr += String(tv)
-        }
-        flds.push(makeField(tagValuesCount), makeField(fundDataOptStr))
+        flds.push(makeField(tagValuesCount), makeField(tagValueListToStr(fundamentalDataOptions)))
       }
 
       this.sendMsg(OUT.REQ_FUNDAMENTAL_DATA, flds.join(''))
@@ -597,11 +574,7 @@ export function applyHistorical(Client: typeof EClient): void {
       ]
 
       if (this.serverVersion() >= SV.MIN_SERVER_VER_NEWS_QUERY_ORIGINS) {
-        let optStr = ''
-        if (newsArticleOptions) {
-          for (const tv of newsArticleOptions) optStr += String(tv)
-        }
-        flds.push(makeField(optStr))
+        flds.push(makeField(tagValueListToStr(newsArticleOptions)))
       }
 
       this.sendMsg(OUT.REQ_NEWS_ARTICLE, flds.join(''))
@@ -634,11 +607,7 @@ export function applyHistorical(Client: typeof EClient): void {
       ]
 
       if (this.serverVersion() >= SV.MIN_SERVER_VER_NEWS_QUERY_ORIGINS) {
-        let optStr = ''
-        if (historicalNewsOptions) {
-          for (const tv of historicalNewsOptions) optStr += String(tv)
-        }
-        flds.push(makeField(optStr))
+        flds.push(makeField(tagValueListToStr(historicalNewsOptions)))
       }
 
       this.sendMsg(OUT.REQ_HISTORICAL_NEWS, flds.join(''))
@@ -987,6 +956,42 @@ export function applyHistorical(Client: typeof EClient): void {
       this.sendMsg(OUT.REQ_USER_INFO, makeField(reqId))
     } catch (ex: any) {
       this.wrapper.error(reqId, currentTimeMillis(), errors.FAIL_SEND_REQ_USER_INFO.code(), errors.FAIL_SEND_REQ_USER_INFO.msg() + String(ex))
+    }
+  }
+
+  // ─── Cancel Contract Data ──────────────────────────────────────────
+
+  Client.prototype.cancelContractData = function (this: EClient, reqId: number): void {
+    if (!this.requireConnected(reqId)) return
+
+    if (this.serverVersion() < SV.MIN_SERVER_VER_CANCEL_CONTRACT_DATA) {
+      this.wrapper.error(reqId, currentTimeMillis(), errors.UPDATE_TWS.code(),
+        errors.UPDATE_TWS.msg() + '  It does not support contract data cancels.')
+      return
+    }
+
+    try {
+      this.sendMsg(OUT.CANCEL_CONTRACT_DATA, makeField(reqId))
+    } catch (ex: any) {
+      this.wrapper.error(reqId, currentTimeMillis(), errors.FAIL_SEND_CANCEL_CONTRACT_DATA.code(), errors.FAIL_SEND_CANCEL_CONTRACT_DATA.msg() + String(ex))
+    }
+  }
+
+  // ─── Cancel Historical Ticks ───────────────────────────────────────
+
+  Client.prototype.cancelHistoricalTicks = function (this: EClient, reqId: number): void {
+    if (!this.requireConnected(reqId)) return
+
+    if (this.serverVersion() < SV.MIN_SERVER_VER_CANCEL_CONTRACT_DATA) {
+      this.wrapper.error(reqId, currentTimeMillis(), errors.UPDATE_TWS.code(),
+        errors.UPDATE_TWS.msg() + '  It does not support historical ticks cancels.')
+      return
+    }
+
+    try {
+      this.sendMsg(OUT.CANCEL_HISTORICAL_TICKS, makeField(reqId))
+    } catch (ex: any) {
+      this.wrapper.error(reqId, currentTimeMillis(), errors.FAIL_SEND_CANCEL_HISTORICAL_TICKS.code(), errors.FAIL_SEND_CANCEL_HISTORICAL_TICKS.msg() + String(ex))
     }
   }
 }

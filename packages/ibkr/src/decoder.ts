@@ -220,8 +220,15 @@ export class Decoder {
   // Main entry point
   // ----------------------------------------------------------------
 
-  interpret(fields: string[]): void {
-    const msgId = parseInt(fields[0] || '0', 10)
+  /**
+   * Dispatch a text-protocol message.
+   * @param fields — the NULL-split payload (first element is msgId as text)
+   * @param msgId — already parsed msgId (passed from client.run loop)
+   */
+  interpret(fields: string[], msgId?: number): void {
+    if (msgId === undefined) {
+      msgId = parseInt(fields[0] || '0', 10)
+    }
     if (msgId === 0) return
 
     const handler = this.msgId2handler.get(msgId)
@@ -245,6 +252,18 @@ export class Decoder {
       }
       throw e
     }
+  }
+
+  /**
+   * Dispatch a protobuf-encoded message.
+   * For now, log unhandled protobuf messages rather than silently dropping them.
+   */
+  processProtoBuf(protoBuf: Buffer, msgId: number): void {
+    if (msgId === 0) return
+
+    // TODO: implement protobuf dispatch table (msgId2handleInfoProtoBuf)
+    // For now, log that we received a protobuf message we can't decode yet
+    console.log(`[ibkr] unhandled protobuf message: msgId=${msgId}, len=${protoBuf.length}`)
   }
 
   // ----------------------------------------------------------------
