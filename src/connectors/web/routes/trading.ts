@@ -120,5 +120,18 @@ export function createTradingRoutes(ctx: EngineContext) {
     return c.json(uta.status())
   })
 
+  // Push (manual approval — the AI tool is hollowed out, only humans can push)
+  app.post('/accounts/:id/wallet/push', async (c) => {
+    const uta = ctx.accountManager.get(c.req.param('id'))
+    if (!uta) return c.json({ error: 'Account not found' }, 404)
+    if (!uta.status().pendingMessage) return c.json({ error: 'Nothing to push' }, 400)
+    try {
+      const result = await uta.push()
+      return c.json(result)
+    } catch (err) {
+      return c.json({ error: String(err) }, 500)
+    }
+  })
+
   return app
 }
