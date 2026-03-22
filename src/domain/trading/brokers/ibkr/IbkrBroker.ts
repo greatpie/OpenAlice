@@ -97,6 +97,9 @@ export class IbkrBroker implements IBroker {
   }
 
   async getContractDetails(query: Contract): Promise<ContractDetails | null> {
+    if (!query.exchange) query.exchange = 'SMART'
+    if (!query.currency) query.currency = 'USD'
+
     const reqId = this.bridge.allocReqId()
     const promise = this.bridge.requestCollector<ContractDetails>(reqId)
     this.client.reqContractDetails(reqId, query)
@@ -107,6 +110,14 @@ export class IbkrBroker implements IBroker {
   // ==================== Trading operations ====================
 
   async placeOrder(contract: Contract, order: Order): Promise<PlaceOrderResult> {
+    // TWS requires exchange and currency on the contract. Upstream layers
+    // (staging, AI tools) typically only populate symbol + secType.
+    // Default to SMART routing. Currency defaults to USD — non-USD markets
+    // (LSE/GBP, TSE/JPY) and forex (CASH secType) will need the caller
+    // to specify currency explicitly.
+    if (!contract.exchange) contract.exchange = 'SMART'
+    if (!contract.currency) contract.currency = 'USD'
+
     try {
       const orderId = this.bridge.getNextOrderId()
       const promise = this.bridge.requestOrder(orderId)
@@ -233,6 +244,9 @@ export class IbkrBroker implements IBroker {
   }
 
   async getQuote(contract: Contract): Promise<Quote> {
+    if (!contract.exchange) contract.exchange = 'SMART'
+    if (!contract.currency) contract.currency = 'USD'
+
     const reqId = this.bridge.allocReqId()
     const promise = this.bridge.requestSnapshot(reqId)
     this.client.reqMktData(reqId, contract, '', true, false, [])
@@ -251,8 +265,15 @@ export class IbkrBroker implements IBroker {
   }
 
   async getMarketClock(): Promise<MarketClock> {
-    const serverTime = await this.bridge.requestCurrentTime()
-    const now = new Date(serverTime * 1000)
+    // TODO: per-contract trading hours via ContractDetails.tradingHours
+    // For now, use local time with NYSE schedule as a baseline.
+    let now: Date
+    try {
+      const serverTime = await this.bridge.requestCurrentTime(3000)
+      now = new Date(serverTime * 1000)
+    } catch {
+      now = new Date()
+    }
 
     // NYSE hours: Mon-Fri 9:30-16:00 ET
     const etParts = new Intl.DateTimeFormat('en-US', {
@@ -281,6 +302,31 @@ export class IbkrBroker implements IBroker {
       supportedSecTypes: ['STK', 'OPT', 'FUT', 'FOP', 'CASH', 'WAR', 'BOND'],
       supportedOrderTypes: ['MKT', 'LMT', 'STP', 'STP LMT', 'TRAIL', 'MOC', 'LOC', 'REL'],
     }
+  }
+
+  // ==================== Contract identity ====================
+
+  getNativeKey(contract: Contract): string {
+    // conId is IBKR's globally unique contract identifier
+    if (contract.conId) return String(contract.conId)
+    return contract.symbol
+  }
+
+  resolveNativeKey(nativeKey: string): Contract {
+    const c = new Contract()
+    const asNum = parseInt(nativeKey, 10)
+    if (!isNaN(asNum) && String(asNum) === nativeKey) {
+      // Numeric nativeKey = conId — TWS resolves everything else from this
+      c.conId = asNum
+    } else {
+      // String nativeKey = symbol — fill in routing defaults.
+      // Assumes STK; other secTypes should use conId for unambiguous resolution.
+      c.symbol = nativeKey
+      c.secType = 'STK'
+      c.exchange = 'SMART'
+      c.currency = 'USD'
+    }
+    return c
   }
 
   // ==================== Internal ====================
